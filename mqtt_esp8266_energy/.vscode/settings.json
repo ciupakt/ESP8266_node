@@ -1,0 +1,6 @@
+{
+    "terminal.integrated.env.linux": {
+        "PATH": "/home/ciupak/.platformio/penv/bin:/home/ciupak/.platformio/penv:/home/ciupak/bin:/home/ciupak/.local/bin:/home/ciupak/Tools/gcc-linaro-5.2-2015.11-2-x86_64_arm-linux-gnueabihf/bin:/home/ciupak/Tools/gcc-linaro-arm-linux-gnueabi-2012.04-20120426_linux/bin:/home/ciupak/Tools/gcc-arm-none-eabi-7-2018-q2-update/bin:/home/ciupak/Tools/avr8-gnu-toolchain-linux_x86_64/bin:/home/ciupak/anaconda3/bin:/home/ciupak/bin:/home/ciupak/.local/bin:/home/ciupak/Tools/gcc-linaro-5.2-2015.11-2-x86_64_arm-linux-gnueabihf/bin:/home/ciupak/Tools/gcc-linaro-arm-linux-gnueabi-2012.04-20120426_linux/bin:/home/ciupak/Tools/gcc-arm-none-eabi-7-2018-q2-update/bin:/home/ciupak/Tools/avr8-gnu-toolchain-linux_x86_64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/opt/microchip/xc32/v2.10/bin:/opt/microchip/xc32/v2.10/bin:/opt/microchip/xc32/v2.10/bin",
+        "PLATFORMIO_CALLER": "vscode"
+    }
+}
