@@ -33,32 +33,40 @@ const char* mqtt_server = "192.168.1.10";
 
 // Set this node's subscribe and publish topic prefix
 #define MY_MQTT_PUBLISH_TOPIC_PREFIX "power1-out"
-#define MY_MQTT_SUBSCRIBE_TOPIC_PREFIX "power1-in"
+#define MY_MQTT_PUBLISH_TOPIC_PREFIX_WATT "power1-out-watt"
+#define MY_MQTT_PUBLISH_TOPIC_PREFIX_KWH "power1-out-kWh"
+#define MY_MQTT_PUBLISH_TOPIC_PREFIX_PULSE "power1-out-pulse"
+#define MY_MQTT_SUBSCRIBE_TOPIC_PREFIX_WATT "power1-in-watt"
+#define MY_MQTT_SUBSCRIBE_TOPIC_PREFIX_KWH "power1-in-kWh"
+#define MY_MQTT_SUBSCRIBE_TOPIC_PREFIX_PULSE "power1-in-pulse"
 
 // Set MQTT client id
 #define MY_MQTT_CLIENT_ID "power1"
 
 //********************************************************
 //  - GPIO
-#define GPIO_INPUT D0
-#define GPIO_LEDLINK D1
+#define GPIO_INPUT D1
+#define GPIO_LEDLINK D0
 
 //********************************************************
 // Configure
 #define PULSE_FACTOR 1000       // Number of blinks per of your meter
 #define SLEEP_MODE false        // Watt value can only be reported when sleep mode is false.
 #define MAX_WATT 10000          // Max watt value to report. This filters outliers.
+#define MAX_DIFF_WATT 10
 
 uint32_t SEND_FREQUENCY = 20000; // Minimum time between send (in milliseconds). We don't want to spam the gateway.
 double ppwh = ((double)PULSE_FACTOR)/1000; // Pulses per watt hour
 bool pcReceived = false;
-volatile uint32_t pulseCount = 0;
-volatile uint32_t lastBlink = 0;
+
+volatile uint32_t last_blink = 0;
 volatile uint32_t watt = 0;
-uint32_t oldPulseCount = 0;
-uint32_t oldWatt = 0;
-double oldkWh;
-uint32_t lastSend;
+uint32_t old_watt = 0;
+volatile uint32_t pulse_count = 0;
+uint32_t old_pulse_count = 0;
+double old_kwh = 0;
+uint32_t last_send_watt = 0;
+uint32_t last_send_kwh = 0;
 //********************************************************
 
 WiFiClient espClient;
@@ -93,7 +101,6 @@ void setup_hw(void)
   set_ledlink(false);
 }
 
-
 void callback(char* topic, byte* payload, u32_t length)
 {
   Serial.print("Message arrived [");
@@ -104,51 +111,41 @@ void callback(char* topic, byte* payload, u32_t length)
   }
   Serial.println();
 
+  String topic_str = String(topic);
   // Switch on the LED if an 1 was received as first character
-  if ((char)payload[0] == '1') {
-    
-  } else
-  if ((char)payload[0] == '0') {
-    
-  } else
-  if ((char)payload[0] == '?') {
-    char relay_status[2] = "0";
+  if (topic_str == MY_MQTT_SUBSCRIBE_TOPIC_PREFIX_PULSE) {
+    String pulse_str = String((char*)payload);
+    pulse_count = pulse_str.toInt();
 
-    client.publish(MY_MQTT_PUBLISH_TOPIC_PREFIX, relay_status);
-  } 
+  }
 }
-
 
 void onPulse()
 {
-  uint32_t newBlink = millis();
+  uint32_t new_blink = millis();
   uint32_t interval = 0;
 
-  pulseCount++;
+  pulse_count++;
 
-  if (newBlink < lastBlink) { //counter overflow
-    lastBlink = newBlink;
+  if (new_blink < last_blink) { //counter overflow
+    last_blink = new_blink;
     return;
   }else{
-    lastBlink = newBlink;
+    last_blink = new_blink;
   }
   
-  interval = newBlink-lastBlink;
+  interval = new_blink-last_blink;
 
-  //Serial.print(">>newBlink:");
-  //Serial.println(newBlink);
+  Serial.print(">>newBlink:");
+  Serial.println(new_blink);
 
-  //Serial.print(">>interval:");
-  //Serial.println(interval);
-    
-  if (interval<100L) { // Sometimes we get interrupt on RISING
-    return;
-  }
+  Serial.print(">>interval:");
+  Serial.println(interval);
 
   watt = (3600000.0 /interval) / ppwh;
 
-  //Serial.print(">>watt:");
-  //Serial.println(watt);
+  Serial.print(">>watt:");
+  Serial.println(watt);
 
 }
 
@@ -156,47 +153,50 @@ void calcutate_power(void)
 {
   uint32_t now = millis();
   // Only send values at a maximum frequency or woken up from sleep
-  bool sendTime = now - lastSend > SEND_FREQUENCY;
-  
-  if (pcReceived && (SLEEP_MODE || sendTime)) {
-    // New watt value has been calculated
-    if (!SLEEP_MODE && watt != oldWatt) {
-      // Check that we don't get unreasonable large watt value.
-      // could happen when long wraps or false interrupt triggered
-      if (watt<((uint32_t)MAX_WATT)) {
-        //send(wattMsg.set(watt));  // Send watt value to gw
-      }
-      Serial.print("Watt:");
-      Serial.println(watt);
-      oldWatt = watt;
-    }
+  bool send_time_kwh = (now - last_send_kwh) > SEND_FREQUENCY;
 
-    // Pulse count value has changed
-    if (pulseCount != oldPulseCount) {
-      //send(pcMsg.set(pulseCount));  // Send pulse count value to gw
-      double kWh = ((double)pulseCount/((double)PULSE_FACTOR));
-      oldPulseCount = pulseCount;
-      if (kWh != oldkWh) {
-        //send(kWhMsg.set(kWh, 4));  // Send kWh value to gw
-        oldkWh = kWh;
+  if (send_time_kwh) {
+    last_send_kwh = now;
+    if (pulse_count != old_pulse_count) {
+      old_pulse_count = pulse_count;
+      double kwh = ((double)pulse_count/((double)PULSE_FACTOR));
+      
+      if (kwh != old_kwh) {
+        old_kwh = kwh;
+        String kwh_str = String(kwh, 3);
+        client.publish(MY_MQTT_PUBLISH_TOPIC_PREFIX_KWH, kwh_str.c_str());
       }
     }
-    lastSend = now;
-  } else if (sendTime && !pcReceived) {
-    // No pulse count value received. Try requesting it again
-    //request(CHILD_ID, V_VAR1);
-    lastSend=now;
   }
 
-  if (SLEEP_MODE) {
-    //sleep(SEND_FREQUENCY);
+  bool send_time_watt = (now - last_send_watt) > SEND_FREQUENCY;
+
+  uint32_t diff = 0;
+  if(watt > old_watt){
+    diff = watt - old_watt;
+  }else{
+    diff = old_watt - watt;
+  }
+
+  if ((diff > MAX_DIFF_WATT) || (send_time_watt)) {
+    if (send_time_watt) {
+      last_send_watt = now;
+    }
+
+    old_watt = watt;
+
+    Serial.print("Watt:");
+    Serial.println(watt);
+
+    if (watt<((uint32_t)MAX_WATT)) {
+      String watt_str = String(watt, 3);
+      client.publish(MY_MQTT_PUBLISH_TOPIC_PREFIX_WATT, watt_str.c_str());
+    }
   }
 }
 
-
 void setup_wifi()
 {
-
   bool blink_led = true;
   
   delay(10);
@@ -237,13 +237,9 @@ void reconnect()
       // Once connected, publish an announcement...
       String msg = String("Present ") + String(MY_MQTT_CLIENT_ID);
       client.publish(MY_MQTT_PUBLISH_TOPIC_PREFIX, msg.c_str());
-
-      char relay_status[2] = "0";
-
-      client.publish(MY_MQTT_PUBLISH_TOPIC_PREFIX, relay_status);
       
       // ... and resubscribe
-      client.subscribe(MY_MQTT_SUBSCRIBE_TOPIC_PREFIX);
+      client.subscribe(MY_MQTT_SUBSCRIBE_TOPIC_PREFIX_PULSE);
       set_ledlink(true);
     } else {
       Serial.print("failed, rc=");
@@ -259,10 +255,8 @@ void reconnect()
   }
 }
 
-
 void setup()
 {
-
   setup_hw();
 
   Serial.begin(115200);
@@ -280,13 +274,10 @@ void loop()
   }
   client.loop();
 
-  lastSend=millis();
-
   long now = millis();
   if (now - last_time > 5) {
     last_time = now;
     //5ms tic
     calcutate_power();
   }
-
 }
